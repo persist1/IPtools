@@ -156,8 +156,13 @@ jobs:
     - name: Deploy Qt Dependencies
       shell: cmd
       run: |
+        echo Using Qt from %Qt5_Dir%
+        where windeployqt
+        set QT_PLUGIN_PATH=%Qt5_Dir%\plugins
+        set QML2_IMPORT_PATH=%Qt5_Dir%\qml
+        echo QT_PLUGIN_PATH=%QT_PLUGIN_PATH%
         cd release
-        windeployqt IPtools.exe --release --no-translations
+        "%Qt5_Dir%\bin\windeployqt.exe" IPtools.exe --release --no-translations --compiler-runtime --plugindir "%Qt5_Dir%\plugins"
     
     - name: Create Archive
       shell: pwsh
