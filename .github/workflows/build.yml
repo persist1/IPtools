@@ -132,6 +132,9 @@ jobs:
               Write-Host "GCC Version: $gccVersion"
             }
             
+            # 导出到环境，便于后续步骤将其置于 PATH 前端
+            "MINGW_BIN=$path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            
             $foundMinGW = $true
             break
           }
@@ -150,19 +153,26 @@ jobs:
       shell: cmd
       run: |
         echo Building IPtools...
-        qmake IPtools.pro CONFIG+=release
-        mingw32-make -j4
+        set "PATH=%MINGW_BIN%;%PATH%"
+        "%Qt5_Dir%\bin\qmake.exe" IPtools.pro CONFIG+=release
+        "%MINGW_BIN%\mingw32-make.exe" -j4
     
     - name: Deploy Qt Dependencies
       shell: cmd
       run: |
         echo Using Qt from %Qt5_Dir%
+        set "PATH=%MINGW_BIN%;%PATH%"
         where windeployqt
         set QT_PLUGIN_PATH=%Qt5_Dir%\plugins
         set QML2_IMPORT_PATH=%Qt5_Dir%\qml
         echo QT_PLUGIN_PATH=%QT_PLUGIN_PATH%
+        dir "%Qt5_Dir%\plugins\platforms"
         cd release
-        "%Qt5_Dir%\bin\windeployqt.exe" IPtools.exe --release --no-translations --compiler-runtime --plugindir "%Qt5_Dir%\plugins"
+        rem 先部署核心库，跳过插件检测
+        "%Qt5_Dir%\bin\windeployqt.exe" IPtools.exe --release --no-translations --compiler-runtime --no-plugins
+        rem 手动拷贝平台插件，确保 qwindows 存在
+        if not exist platforms mkdir platforms
+        copy "%Qt5_Dir%\plugins\platforms\qwindows.dll" platforms\ /Y
     
     - name: Create Archive
       shell: pwsh
