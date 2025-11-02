@@ -93,7 +93,7 @@ jobs:
           Write-Warning "尝试通过 Chocolatey 安装 MinGW..."
           choco install mingw -y --no-progress
           
-          # Chocolatey 安装的 mingw 可能在多个位置
+          # Chocolatey 安装的 mingw 可能在多个位置。
           $possiblePaths = @(
             'C:\ProgramData\mingw64\mingw64\bin',
             'C:\ProgramData\mingw64\mingw32\bin',
