@@ -1,0 +1,83 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Install Qt and Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qt5-default qtbase5-dev qttools5-dev-tools \
+          build-essential cppcheck clang-tidy
+    
+    - name: Run CPPCheck
+      run: |
+        cppcheck --enable=all --inconclusive --std=c++11 \
+          --suppress=missingIncludeSystem \
+          --suppress=unmatchedSuppression \
+          -I . \
+          *.cpp *.h 2>&1 | tee cppcheck-report.txt || true
+    
+    - name: Generate Build Files for Clang-Tidy
+      run: |
+        qmake IPtools.pro
+    
+    - name: Run Clang-Tidy
+      run: |
+        clang-tidy *.cpp -- -I. $(pkg-config --cflags Qt5Core Qt5Gui Qt5Widgets Qt5Network) 2>&1 | tee clang-tidy-report.txt || true
+    
+    - name: Check for Build Warnings
+      run: |
+        qmake IPtools.pro CONFIG+=release
+        make -j$(nproc) 2>&1 | tee build-warnings.txt
+    
+    - name: Upload Reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: code-quality-reports
+        path: |
+          cppcheck-report.txt
+          clang-tidy-report.txt
+          build-warnings.txt
+        retention-days: 30
+    
+    - name: Comment Summary
+      run: |
+        echo "## Code Quality Analysis" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### CPPCheck Results" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        tail -n 20 cppcheck-report.txt >> $GITHUB_STEP_SUMMARY || echo "No issues found" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Full reports are available in the artifacts." >> $GITHUB_STEP_SUMMARY
+
+  check-format:
+    name: Check Code Format
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Install clang-format
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-format
+    
+    - name: Check Format
+      run: |
+        find . -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror || true
+
