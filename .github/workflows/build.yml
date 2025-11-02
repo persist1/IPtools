@@ -41,11 +41,11 @@ jobs:
         include:
           - arch: win64_mingw81
             mingw_arch: x86_64
-            mingw_prefix: mingw64
+            mingw_tool_dir: mingw810_64
             platform_name: windows-x64
           - arch: win32_mingw81
             mingw_arch: i686
-            mingw_prefix: mingw32
+            mingw_tool_dir: mingw810_32
             platform_name: windows-x86
     
     steps:
@@ -62,19 +62,48 @@ jobs:
         modules: 'qtnetworkauth'
         cache: true
     
-    - name: Setup MinGW
+    - name: Setup Qt and MinGW PATH
       shell: pwsh
       run: |
-        # install-qt-action 应该已经设置好了环境，检查一下
-        Write-Host "Checking Qt environment..."
-        Write-Host "Qt5_Dir = $env:Qt5_Dir"
-        Write-Host "PATH = $env:PATH"
-        
-        # 安装 MinGW（Qt action 可能没有包含完整的工具链）
-        choco install mingw -y --force
-        
-        # 刷新环境变量
-        refreshenv
+        $qtDir = $env:Qt5_Dir
+        if (-not $qtDir) {
+          throw "Qt5_Dir 环境变量未设置，install-qt-action 可能失败了"
+        }
+
+        Write-Host "Qt5_Dir = $qtDir"
+
+        $qtBin = Join-Path $qtDir 'bin'
+        if (Test-Path $qtBin) {
+          Write-Host "Adding Qt bin to PATH: $qtBin"
+          "$qtBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        } else {
+          Write-Host "Qt bin 目录不存在: $qtBin"
+        }
+
+        $qtRoot = (Get-Item $qtDir).Parent.Parent.FullName
+        $toolsDir = Join-Path $qtRoot 'Tools'
+        $targetTool = Join-Path $toolsDir '${{ matrix.mingw_tool_dir }}'
+        $targetBin = Join-Path $targetTool 'bin'
+
+        if (Test-Path $targetBin) {
+          Write-Host "Adding Qt MinGW toolchain to PATH: $targetBin"
+          "$targetBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        } else {
+          Write-Warning "Qt 自带的 MinGW 工具链未找到: $targetBin"
+          Write-Warning "尝试通过 Chocolatey 安装 MinGW..."
+          choco install mingw -y --no-progress
+          if ('${{ matrix.mingw_arch }}' -eq 'i686') {
+            $fallback = 'C:\\tools\\mingw32\\bin'
+          } else {
+            $fallback = 'C:\\tools\\mingw64\\bin'
+          }
+          if (Test-Path $fallback) {
+            Write-Host "Adding fallback MinGW to PATH: $fallback"
+            "$fallback" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          } else {
+            throw "MinGW 工具链未找到，构建无法继续"
+          }
+        }
     
     - name: Build Project
       shell: cmd
