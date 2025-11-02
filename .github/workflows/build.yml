@@ -108,8 +108,10 @@ jobs:
           $qtBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         }
 
-        # 查找并添加 MinGW（优先使用 Qt 官方的）
+        # 查找并添加 MinGW（优先使用 Qt 官方与已解压路径）
         $mingwPaths = @(
+          "C:\Qt\Tools\${{ matrix.mingw_dir }}\mingw64\bin",
+          "C:\Qt\Tools\${{ matrix.mingw_dir }}\mingw32\bin",
           "C:\Qt\Tools\${{ matrix.mingw_dir }}\bin",
           'C:\ProgramData\mingw64\mingw64\bin',
           'C:\ProgramData\mingw32\mingw32\bin',
