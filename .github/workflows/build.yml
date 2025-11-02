@@ -49,20 +49,10 @@ jobs:
             platform_name: windows-x86
     
     steps:
-    - name: Check if should build this variant
-      id: should_build
-      run: |
-        $shouldBuild = "${{ github.event_name }}" -ne "workflow_dispatch" -or 
-                       "${{ github.event.inputs.platform }}" -eq "all" -or 
-                       "${{ github.event.inputs.platform }}" -eq "${{ matrix.platform_name }}"
-        echo "result=$shouldBuild" >> $env:GITHUB_OUTPUT
-    
     - name: Checkout Code
-      if: steps.should_build.outputs.result == 'true'
       uses: actions/checkout@v4
     
     - name: Install Qt
-      if: steps.should_build.outputs.result == 'true'
       uses: jurplel/install-qt-action@v3
       with:
         version: ${{ env.QT_VERSION }}
@@ -72,22 +62,41 @@ jobs:
         modules: 'qtnetworkauth'
         cache: true
     
+    - name: Setup MinGW
+      shell: pwsh
+      run: |
+        # install-qt-action 应该已经设置好了环境，检查一下
+        Write-Host "Checking Qt environment..."
+        Write-Host "Qt5_Dir = $env:Qt5_Dir"
+        Write-Host "PATH = $env:PATH"
+        
+        # 安装 MinGW（Qt action 可能没有包含完整的工具链）
+        choco install mingw -y --force
+        
+        # 刷新环境变量
+        refreshenv
+    
     - name: Build Project
-      if: steps.should_build.outputs.result == 'true'
       shell: cmd
       run: |
+        echo "Qt version:"
+        qmake -v
+        echo.
+        echo "Compiler check:"
+        where g++
+        where mingw32-make
+        echo.
+        echo "Building..."
         qmake IPtools.pro CONFIG+=release
         mingw32-make -j4
     
     - name: Deploy Qt Dependencies
-      if: steps.should_build.outputs.result == 'true'
       shell: cmd
       run: |
         cd release
         windeployqt IPtools.exe --release --no-translations
     
     - name: Create Archive
-      if: steps.should_build.outputs.result == 'true'
       shell: pwsh
       run: |
         $archName = "IPtools-Windows-${{ matrix.mingw_arch }}"
@@ -100,7 +109,6 @@ jobs:
         Compress-Archive -Path dist/* -DestinationPath "$archName.zip"
     
     - name: Upload Artifact
-      if: steps.should_build.outputs.result == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: IPtools-Windows-${{ matrix.mingw_arch }}
@@ -126,43 +134,31 @@ jobs:
             platform_name: linux-arm64
     
     steps:
-    - name: Check if should build this variant
-      id: should_build
-      run: |
-        if [ "${{ github.event_name }}" != "workflow_dispatch" ] || 
-           [ "${{ github.event.inputs.platform }}" = "all" ] || 
-           [ "${{ github.event.inputs.platform }}" = "${{ matrix.platform_name }}" ]; then
-          echo "result=true" >> $GITHUB_OUTPUT
-        else
-          echo "result=false" >> $GITHUB_OUTPUT
-        fi
-    
     - name: Checkout Code
-      if: steps.should_build.outputs.result == 'true'
       uses: actions/checkout@v4
     
     - name: Install Dependencies (x86_64)
-      if: steps.should_build.outputs.result == 'true' && matrix.arch == 'x86_64'
+      if: matrix.arch == 'x86_64'
       run: |
         sudo apt-get update
         sudo apt-get install -y qt5-default qtbase5-dev qttools5-dev-tools \
           build-essential lsof libgl1-mesa-dev
     
     - name: Install Cross-Compilation Tools (ARM64)
-      if: steps.should_build.outputs.result == 'true' && matrix.arch == 'aarch64'
+      if: matrix.arch == 'aarch64'
       run: |
         sudo apt-get update
         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
           qt5-default qtbase5-dev qttools5-dev-tools build-essential
     
     - name: Build Project (x86_64)
-      if: steps.should_build.outputs.result == 'true' && matrix.arch == 'x86_64'
+      if: matrix.arch == 'x86_64'
       run: |
         qmake IPtools.pro CONFIG+=release
         make -j$(nproc)
     
     - name: Build Project (ARM64)
-      if: steps.should_build.outputs.result == 'true' && matrix.arch == 'aarch64'
+      if: matrix.arch == 'aarch64'
       run: |
         # Note: Full ARM64 cross-compilation requires ARM64 Qt libraries
         # This is a placeholder - actual cross-compilation needs proper Qt setup
@@ -170,7 +166,7 @@ jobs:
         make -j$(nproc) CXX=aarch64-linux-gnu-g++ CC=aarch64-linux-gnu-gcc || echo "ARM64 cross-compilation requires ARM64 Qt libraries"
     
     - name: Create AppImage (x86_64)
-      if: steps.should_build.outputs.result == 'true' && matrix.arch == 'x86_64'
+      if: matrix.arch == 'x86_64'
       run: |
         sudo apt-get install -y libfuse2
         wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
@@ -182,7 +178,6 @@ jobs:
         ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage || echo "AppImage creation failed, continuing..."
     
     - name: Create Archive
-      if: steps.should_build.outputs.result == 'true'
       run: |
         mkdir -p dist
         if [ -f "IPtools" ]; then
@@ -194,7 +189,6 @@ jobs:
         tar -czf IPtools-Linux-${{ matrix.arch }}.tar.gz -C dist .
     
     - name: Upload Artifact
-      if: steps.should_build.outputs.result == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: IPtools-Linux-${{ matrix.arch }}
@@ -222,23 +216,10 @@ jobs:
             platform_name: macos-arm64
     
     steps:
-    - name: Check if should build this variant
-      id: should_build
-      run: |
-        if [ "${{ github.event_name }}" != "workflow_dispatch" ] || 
-           [ "${{ github.event.inputs.platform }}" = "all" ] || 
-           [ "${{ github.event.inputs.platform }}" = "${{ matrix.platform_name }}" ]; then
-          echo "result=true" >> $GITHUB_OUTPUT
-        else
-          echo "result=false" >> $GITHUB_OUTPUT
-        fi
-    
     - name: Checkout Code
-      if: steps.should_build.outputs.result == 'true'
       uses: actions/checkout@v4
     
     - name: Install Qt
-      if: steps.should_build.outputs.result == 'true'
       uses: jurplel/install-qt-action@v3
       with:
         version: ${{ env.QT_VERSION }}
@@ -248,13 +229,11 @@ jobs:
         cache: true
     
     - name: Build Project
-      if: steps.should_build.outputs.result == 'true'
       run: |
         qmake IPtools.pro CONFIG+=release
         make -j$(sysctl -n hw.ncpu)
     
     - name: Create App Bundle
-      if: steps.should_build.outputs.result == 'true'
       run: |
         mkdir -p dist
         cp -r IPtools.app dist/
@@ -264,7 +243,6 @@ jobs:
         cp LICENSE dist/ || true
     
     - name: Create Archive
-      if: steps.should_build.outputs.result == 'true'
       run: |
         cd dist
         if [ -f "IPtools.dmg" ]; then
@@ -274,7 +252,6 @@ jobs:
         fi
     
     - name: Upload Artifact
-      if: steps.should_build.outputs.result == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: IPtools-macOS-${{ matrix.arch }}

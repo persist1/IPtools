@@ -226,6 +226,8 @@ chmod +x scripts/build-macos.sh
 ## 相关文档
 - [START_HERE.md](START_HERE.md) - 快速开始指南
 - [BUILD_PLATFORM_GUIDE.md](BUILD_PLATFORM_GUIDE.md) - 🆕 多平台构建选择指南
+- [GITHUB_ACTIONS_FAQ.md](GITHUB_ACTIONS_FAQ.md) - 🆕 GitHub Actions 常见问题解答
+- [PLATFORM_BUILD_QUICK_REF.md](PLATFORM_BUILD_QUICK_REF.md) - 快速参考
 - [CROSS_PLATFORM.md](CROSS_PLATFORM.md) - 跨平台编译指南
 - [USAGE_GUIDE.md](USAGE_GUIDE.md) - 使用说明
 - [WORKFLOW_SETUP_SUMMARY.md](WORKFLOW_SETUP_SUMMARY.md) - 工作流配置总结
