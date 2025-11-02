@@ -41,11 +41,13 @@ jobs:
         include:
           - arch: win64_mingw81
             mingw_arch: x86_64
-            mingw_tool_dir: mingw810_64
+            mingw_tool_dir: mingw81_64
+            mingw_tool_variant: mingw81_64
             platform_name: windows-x64
           - arch: win32_mingw81
             mingw_arch: i686
-            mingw_tool_dir: mingw810_32
+            mingw_tool_dir: mingw81_32
+            mingw_tool_variant: mingw81_32
             platform_name: windows-x86
     
     steps:
@@ -60,50 +62,52 @@ jobs:
         target: 'desktop'
         arch: ${{ matrix.arch }}
         modules: 'qtnetworkauth'
-        tools: 'tools_mingw,${{ matrix.mingw_tool_dir }}'
+        tools: 'tools_mingw,${{ matrix.mingw_tool_variant }}'
         cache: true
     
-    - name: Verify Qt and MinGW Installation
+    - name: Prepare Qt and MinGW Environment
       shell: pwsh
       run: |
-        Write-Host "=== 环境变量检查 ==="
+        if (-not $env:Qt5_Dir) {
+          throw "Qt5_Dir 环境变量未设置，install-qt-action 可能失败了"
+        }
+
         Write-Host "Qt5_Dir: $env:Qt5_Dir"
-        Write-Host ""
-        
-        Write-Host "=== PATH 检查 ==="
-        $env:PATH -split ';' | Where-Object { $_ -match 'Qt|mingw' } | ForEach-Object { Write-Host "  $_" }
-        Write-Host ""
-        
-        Write-Host "=== 工具检查 ==="
-        try {
-          $qmakeVersion = & qmake -v 2>&1
-          Write-Host "qmake: 找到"
-          Write-Host $qmakeVersion
-        } catch {
-          Write-Error "qmake: 未找到"
-          throw "qmake 不可用"
+
+        $pathsToAdd = @()
+
+        # Qt bin 目录
+        $qtBin = Join-Path $env:Qt5_Dir 'bin'
+        if (Test-Path $qtBin) {
+          $pathsToAdd += $qtBin
         }
-        
-        try {
-          $gccVersion = & g++ --version 2>&1 | Select-Object -First 1
-          Write-Host "g++: 找到"
-          Write-Host $gccVersion
-        } catch {
-          Write-Error "g++: 未找到"
-          throw "g++ 编译器不可用"
+
+        # 自动查找 Qt Tools 下的 mingw
+        $qtRoot = (Get-Item $env:Qt5_Dir).Parent.Parent.FullName
+        $toolsDir = Join-Path $qtRoot 'Tools'
+        if (Test-Path $toolsDir) {
+          $mingwDirs = Get-ChildItem $toolsDir -Directory | Where-Object { $_.Name -like 'mingw*' }
+          foreach ($dir in $mingwDirs) {
+            $binDir = Join-Path $dir.FullName 'bin'
+            if (Test-Path $binDir) {
+              $pathsToAdd += $binDir
+            }
+          }
         }
-        
-        try {
-          $makeVersion = & mingw32-make --version 2>&1 | Select-Object -First 1
-          Write-Host "mingw32-make: 找到"
-          Write-Host $makeVersion
-        } catch {
-          Write-Error "mingw32-make: 未找到"
-          throw "mingw32-make 不可用"
+
+        # 去重并写入 GITHUB_PATH
+        $pathsToAdd = $pathsToAdd | Sort-Object -Unique
+        foreach ($path in $pathsToAdd) {
+          Write-Host "Adding to PATH: $path"
+          $path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         }
-        
+
         Write-Host ""
-        Write-Host "=== 所有工具就绪，可以开始构建 ==="
+        Write-Host "=== 工具版本检查 ==="
+        & qmake -v
+        & g++ --version | Select-Object -First 1
+        & mingw32-make --version | Select-Object -First 1
+        Write-Host "=== 工具准备完成 ==="
     
     - name: Build Project
       shell: cmd
