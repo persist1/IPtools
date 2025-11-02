@@ -41,13 +41,13 @@ jobs:
         include:
           - arch: win64_mingw81
             mingw_arch: x86_64
-            mingw_tool_dir: mingw81_64
-            mingw_tool_variant: mingw81_64
+            mingw_version: '8.1.0'
+            mingw_dir: mingw810_64
             platform_name: windows-x64
           - arch: win32_mingw81
             mingw_arch: i686
-            mingw_tool_dir: mingw81_32
-            mingw_tool_variant: mingw81_32
+            mingw_version: '8.1.0'
+            mingw_dir: mingw810_32
             platform_name: windows-x86
     
     steps:
@@ -62,52 +62,87 @@ jobs:
         target: 'desktop'
         arch: ${{ matrix.arch }}
         modules: 'qtnetworkauth'
-        tools: 'tools_mingw,${{ matrix.mingw_tool_variant }}'
         cache: true
     
-    - name: Prepare Qt and MinGW Environment
+    - name: Install MinGW ${{ matrix.mingw_version }}
+      shell: pwsh
+      run: |
+        Write-Host "Downloading MinGW ${{ matrix.mingw_version }} from Qt official source..."
+        
+        # Qt 官方 MinGW 8.1.0 下载地址
+        $mingwUrl = "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/tools_mingw/${{ matrix.mingw_dir }}/"
+        $archiveName = "${{ matrix.mingw_dir }}-gcc-8.1.0-1-any.7z"
+        $downloadUrl = $mingwUrl + $archiveName
+        $downloadPath = Join-Path $env:TEMP $archiveName
+        $extractPath = "C:\Qt\Tools\${{ matrix.mingw_dir }}"
+        
+        try {
+          Write-Host "Downloading from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath -UseBasicParsing
+          
+          Write-Host "Extracting to: $extractPath"
+          New-Item -ItemType Directory -Force -Path $extractPath | Out-Null
+          7z x $downloadPath -o"$extractPath" -y
+          
+          Write-Host "MinGW ${{ matrix.mingw_version }} installed successfully"
+        } catch {
+          Write-Warning "Failed to download from Qt official source: $_"
+          Write-Host "Falling back to Chocolatey MinGW..."
+          choco install mingw -y --no-progress --force
+        }
+    
+    - name: Setup Build Environment
       shell: pwsh
       run: |
         if (-not $env:Qt5_Dir) {
-          throw "Qt5_Dir 环境变量未设置，install-qt-action 可能失败了"
+          throw "Qt5_Dir 环境变量未设置"
         }
 
         Write-Host "Qt5_Dir: $env:Qt5_Dir"
+        Write-Host ""
 
-        $pathsToAdd = @()
-
-        # Qt bin 目录
+        # 添加 Qt bin 到 PATH
         $qtBin = Join-Path $env:Qt5_Dir 'bin'
         if (Test-Path $qtBin) {
-          $pathsToAdd += $qtBin
+          Write-Host "Adding Qt bin: $qtBin"
+          $qtBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         }
 
-        # 自动查找 Qt Tools 下的 mingw
-        $qtRoot = (Get-Item $env:Qt5_Dir).Parent.Parent.FullName
-        $toolsDir = Join-Path $qtRoot 'Tools'
-        if (Test-Path $toolsDir) {
-          $mingwDirs = Get-ChildItem $toolsDir -Directory | Where-Object { $_.Name -like 'mingw*' }
-          foreach ($dir in $mingwDirs) {
-            $binDir = Join-Path $dir.FullName 'bin'
-            if (Test-Path $binDir) {
-              $pathsToAdd += $binDir
+        # 查找并添加 MinGW（优先使用 Qt 官方的）
+        $mingwPaths = @(
+          "C:\Qt\Tools\${{ matrix.mingw_dir }}\bin",
+          'C:\ProgramData\mingw64\mingw64\bin',
+          'C:\ProgramData\mingw32\mingw32\bin',
+          'C:\tools\mingw64\bin',
+          'C:\tools\mingw32\bin'
+        )
+        
+        $foundMinGW = $false
+        foreach ($path in $mingwPaths) {
+          if (Test-Path $path) {
+            Write-Host "Found MinGW at: $path"
+            $path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            
+            # 验证编译器版本
+            $gccPath = Join-Path $path 'g++.exe'
+            if (Test-Path $gccPath) {
+              $gccVersion = & $gccPath --version 2>&1 | Select-Object -First 1
+              Write-Host "GCC Version: $gccVersion"
             }
+            
+            $foundMinGW = $true
+            break
           }
         }
-
-        # 去重并写入 GITHUB_PATH
-        $pathsToAdd = $pathsToAdd | Sort-Object -Unique
-        foreach ($path in $pathsToAdd) {
-          Write-Host "Adding to PATH: $path"
-          $path | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        
+        if (-not $foundMinGW) {
+          Write-Error "MinGW 未找到！尝试的路径："
+          $mingwPaths | ForEach-Object { Write-Error "  - $_" }
+          throw "MinGW 未找到"
         }
-
+        
         Write-Host ""
-        Write-Host "=== 工具版本检查 ==="
-        & qmake -v
-        & g++ --version | Select-Object -First 1
-        & mingw32-make --version | Select-Object -First 1
-        Write-Host "=== 工具准备完成 ==="
+        Write-Host "=== 环境配置完成 ==="
     
     - name: Build Project
       shell: cmd
