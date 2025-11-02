@@ -1,5 +1,40 @@
 # 更新日志
 
+## v1.2.0 - 2025-11-02
+
+### 🚀 CI/CD 改进
+
+#### GitHub Actions 平台选择构建
+- ✅ 支持手动选择特定平台构建
+- ✅ 可选择单个平台或所有平台构建
+- ✅ 节省构建时间和 GitHub Actions 配额
+- ✅ 支持的平台选项：
+  - `all` - 构建所有平台
+  - `windows-x64` - Windows 64位
+  - `windows-x86` - Windows 32位
+  - `linux-x86_64` - Linux x86_64
+  - `linux-arm64` - Linux ARM64
+  - `macos-x86_64` - macOS Intel
+  - `macos-arm64` - macOS Apple Silicon
+
+#### 构建优化
+- ✅ 添加平台检测逻辑，跳过未选择的平台
+- ✅ 优化构建摘要显示，支持中文
+- ✅ 改进 Artifacts 上传配置
+- ✅ 添加缓存容错处理
+
+### 📝 文档更新
+- ✅ 新增 [BUILD_PLATFORM_GUIDE.md](BUILD_PLATFORM_GUIDE.md) - 详细的平台选择构建指南
+- ✅ 更新 README.md - 添加手动构建说明
+- ✅ 改进文档结构和导航
+
+### 🔧 工作流改进
+- ✅ 修改 `.github/workflows/build.yml` 添加 workflow_dispatch 输入参数
+- ✅ 添加平台条件判断逻辑
+- ✅ 优化构建触发条件
+
+---
+
 ## v1.1.0 - 2025-10-29
 
 ### 🎉 新增功能

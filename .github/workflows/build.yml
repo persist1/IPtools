@@ -6,6 +6,20 @@ on:
   pull_request:
     branches: [ main, master, develop ]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: '选择构建平台'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows-x64
+          - windows-x86
+          - linux-x86_64
+          - linux-arm64
+          - macos-x86_64
+          - macos-arm64
 
 env:
   QT_VERSION: '5.15.2'
@@ -14,6 +28,13 @@ jobs:
   build-windows:
     name: Build Windows (${{ matrix.arch }})
     runs-on: windows-latest
+    # 只在满足以下条件时运行：
+    # 1. 自动触发（push/PR）时
+    # 2. 手动触发且选择了 all 或对应的平台
+    if: |
+      github.event_name != 'workflow_dispatch' || 
+      github.event.inputs.platform == 'all' || 
+      startsWith(github.event.inputs.platform, 'windows')
     strategy:
       fail-fast: false
       matrix:
@@ -21,15 +42,27 @@ jobs:
           - arch: win64_mingw81
             mingw_arch: x86_64
             mingw_prefix: mingw64
+            platform_name: windows-x64
           - arch: win32_mingw81
             mingw_arch: i686
             mingw_prefix: mingw32
+            platform_name: windows-x86
     
     steps:
+    - name: Check if should build this variant
+      id: should_build
+      run: |
+        $shouldBuild = "${{ github.event_name }}" -ne "workflow_dispatch" -or 
+                       "${{ github.event.inputs.platform }}" -eq "all" -or 
+                       "${{ github.event.inputs.platform }}" -eq "${{ matrix.platform_name }}"
+        echo "result=$shouldBuild" >> $env:GITHUB_OUTPUT
+    
     - name: Checkout Code
+      if: steps.should_build.outputs.result == 'true'
       uses: actions/checkout@v4
     
     - name: Install Qt
+      if: steps.should_build.outputs.result == 'true'
       uses: jurplel/install-qt-action@v3
       with:
         version: ${{ env.QT_VERSION }}
@@ -40,29 +73,34 @@ jobs:
         cache: true
     
     - name: Build Project
+      if: steps.should_build.outputs.result == 'true'
       shell: cmd
       run: |
         qmake IPtools.pro CONFIG+=release
         mingw32-make -j4
     
     - name: Deploy Qt Dependencies
+      if: steps.should_build.outputs.result == 'true'
       shell: cmd
       run: |
         cd release
         windeployqt IPtools.exe --release --no-translations
     
     - name: Create Archive
+      if: steps.should_build.outputs.result == 'true'
       shell: pwsh
       run: |
         $archName = "IPtools-Windows-${{ matrix.mingw_arch }}"
         New-Item -ItemType Directory -Force -Path dist
         Copy-Item -Path release/IPtools.exe -Destination dist/
-        Copy-Item -Path README.md -Destination dist/
-        Copy-Item -Path USAGE_GUIDE.md -Destination dist/
+        Copy-Item -Path README.md -Destination dist/ -ErrorAction SilentlyContinue
+        Copy-Item -Path USAGE_GUIDE.md -Destination dist/ -ErrorAction SilentlyContinue
+        Copy-Item -Path LICENSE -Destination dist/ -ErrorAction SilentlyContinue
         Copy-Item -Path release/*.dll -Destination dist/ -ErrorAction SilentlyContinue
         Compress-Archive -Path dist/* -DestinationPath "$archName.zip"
     
     - name: Upload Artifact
+      if: steps.should_build.outputs.result == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: IPtools-Windows-${{ matrix.mingw_arch }}
@@ -72,41 +110,59 @@ jobs:
   build-linux:
     name: Build Linux (${{ matrix.arch }})
     runs-on: ubuntu-20.04
+    if: |
+      github.event_name != 'workflow_dispatch' || 
+      github.event.inputs.platform == 'all' || 
+      startsWith(github.event.inputs.platform, 'linux')
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x86_64
             qt_arch: gcc_64
+            platform_name: linux-x86_64
           - arch: aarch64
             qt_arch: gcc_64
+            platform_name: linux-arm64
     
     steps:
+    - name: Check if should build this variant
+      id: should_build
+      run: |
+        if [ "${{ github.event_name }}" != "workflow_dispatch" ] || 
+           [ "${{ github.event.inputs.platform }}" = "all" ] || 
+           [ "${{ github.event.inputs.platform }}" = "${{ matrix.platform_name }}" ]; then
+          echo "result=true" >> $GITHUB_OUTPUT
+        else
+          echo "result=false" >> $GITHUB_OUTPUT
+        fi
+    
     - name: Checkout Code
+      if: steps.should_build.outputs.result == 'true'
       uses: actions/checkout@v4
     
     - name: Install Dependencies (x86_64)
-      if: matrix.arch == 'x86_64'
+      if: steps.should_build.outputs.result == 'true' && matrix.arch == 'x86_64'
       run: |
         sudo apt-get update
         sudo apt-get install -y qt5-default qtbase5-dev qttools5-dev-tools \
           build-essential lsof libgl1-mesa-dev
     
     - name: Install Cross-Compilation Tools (ARM64)
-      if: matrix.arch == 'aarch64'
+      if: steps.should_build.outputs.result == 'true' && matrix.arch == 'aarch64'
       run: |
         sudo apt-get update
         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
           qt5-default qtbase5-dev qttools5-dev-tools build-essential
     
     - name: Build Project (x86_64)
-      if: matrix.arch == 'x86_64'
+      if: steps.should_build.outputs.result == 'true' && matrix.arch == 'x86_64'
       run: |
         qmake IPtools.pro CONFIG+=release
         make -j$(nproc)
     
     - name: Build Project (ARM64)
-      if: matrix.arch == 'aarch64'
+      if: steps.should_build.outputs.result == 'true' && matrix.arch == 'aarch64'
       run: |
         # Note: Full ARM64 cross-compilation requires ARM64 Qt libraries
         # This is a placeholder - actual cross-compilation needs proper Qt setup
@@ -114,7 +170,7 @@ jobs:
         make -j$(nproc) CXX=aarch64-linux-gnu-g++ CC=aarch64-linux-gnu-gcc || echo "ARM64 cross-compilation requires ARM64 Qt libraries"
     
     - name: Create AppImage (x86_64)
-      if: matrix.arch == 'x86_64'
+      if: steps.should_build.outputs.result == 'true' && matrix.arch == 'x86_64'
       run: |
         sudo apt-get install -y libfuse2
         wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
@@ -122,10 +178,11 @@ jobs:
         chmod +x linuxdeploy*.AppImage
         mkdir -p AppDir/usr/bin
         cp IPtools AppDir/usr/bin/
-        cp README.md AppDir/usr/
+        cp README.md AppDir/usr/ || true
         ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage || echo "AppImage creation failed, continuing..."
     
     - name: Create Archive
+      if: steps.should_build.outputs.result == 'true'
       run: |
         mkdir -p dist
         if [ -f "IPtools" ]; then
@@ -133,9 +190,11 @@ jobs:
         fi
         cp README.md dist/ || true
         cp USAGE_GUIDE.md dist/ || true
+        cp LICENSE dist/ || true
         tar -czf IPtools-Linux-${{ matrix.arch }}.tar.gz -C dist .
     
     - name: Upload Artifact
+      if: steps.should_build.outputs.result == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: IPtools-Linux-${{ matrix.arch }}
@@ -147,20 +206,39 @@ jobs:
   build-macos:
     name: Build macOS (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
+    if: |
+      github.event_name != 'workflow_dispatch' || 
+      github.event.inputs.platform == 'all' || 
+      startsWith(github.event.inputs.platform, 'macos')
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-12
             arch: x86_64
+            platform_name: macos-x86_64
           - os: macos-14
             arch: arm64
+            platform_name: macos-arm64
     
     steps:
+    - name: Check if should build this variant
+      id: should_build
+      run: |
+        if [ "${{ github.event_name }}" != "workflow_dispatch" ] || 
+           [ "${{ github.event.inputs.platform }}" = "all" ] || 
+           [ "${{ github.event.inputs.platform }}" = "${{ matrix.platform_name }}" ]; then
+          echo "result=true" >> $GITHUB_OUTPUT
+        else
+          echo "result=false" >> $GITHUB_OUTPUT
+        fi
+    
     - name: Checkout Code
+      if: steps.should_build.outputs.result == 'true'
       uses: actions/checkout@v4
     
     - name: Install Qt
+      if: steps.should_build.outputs.result == 'true'
       uses: jurplel/install-qt-action@v3
       with:
         version: ${{ env.QT_VERSION }}
@@ -170,19 +248,23 @@ jobs:
         cache: true
     
     - name: Build Project
+      if: steps.should_build.outputs.result == 'true'
       run: |
         qmake IPtools.pro CONFIG+=release
         make -j$(sysctl -n hw.ncpu)
     
     - name: Create App Bundle
+      if: steps.should_build.outputs.result == 'true'
       run: |
         mkdir -p dist
         cp -r IPtools.app dist/
         macdeployqt dist/IPtools.app -dmg
         cp README.md dist/ || true
         cp USAGE_GUIDE.md dist/ || true
+        cp LICENSE dist/ || true
     
     - name: Create Archive
+      if: steps.should_build.outputs.result == 'true'
       run: |
         cd dist
         if [ -f "IPtools.dmg" ]; then
@@ -192,6 +274,7 @@ jobs:
         fi
     
     - name: Upload Artifact
+      if: steps.should_build.outputs.result == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: IPtools-macOS-${{ matrix.arch }}
@@ -208,15 +291,28 @@ jobs:
     steps:
     - name: Summary
       run: |
-        echo "## Build Results" >> $GITHUB_STEP_SUMMARY
-        echo "| Platform | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Windows x64 | ${{ needs.build-windows.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Windows x86 | ${{ needs.build-windows.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Linux x86_64 | ${{ needs.build-linux.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Linux ARM64 | ${{ needs.build-linux.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| macOS x86_64 | ${{ needs.build-macos.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| macOS ARM64 | ${{ needs.build-macos.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "## 🎯 构建结果" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "Build artifacts are available in the Actions tab." >> $GITHUB_STEP_SUMMARY
+        
+        # 显示触发方式
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "**触发方式**: 手动触发" >> $GITHUB_STEP_SUMMARY
+          echo "**选择平台**: \`${{ github.event.inputs.platform }}\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "**触发方式**: 自动触发 (${{ github.event_name }})" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "| 平台 | 架构 | 状态 |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|------|------|" >> $GITHUB_STEP_SUMMARY
+        echo "| 🪟 Windows | x64 | ${{ needs.build-windows.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🪟 Windows | x86 | ${{ needs.build-windows.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🐧 Linux | x86_64 | ${{ needs.build-linux.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🐧 Linux | ARM64 | ${{ needs.build-linux.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🍎 macOS | x86_64 | ${{ needs.build-macos.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🍎 macOS | ARM64 | ${{ needs.build-macos.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📦 构建产物可在 Actions 标签页的 Artifacts 中下载。" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "⏱️ 产物保留时间：30 天" >> $GITHUB_STEP_SUMMARY
 

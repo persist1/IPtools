@@ -164,12 +164,27 @@ make
 - ✅ macOS (Intel/Apple Silicon)
 
 ### 使用方法
-1. Fork 本仓库到您的 GitHub 账号
-2. 推送代码会自动触发构建
-3. 在 Actions 标签页查看构建结果
-4. 创建 Git 标签自动发布版本
 
-详细说明请查看 [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md)
+#### 🚀 自动构建（所有平台）
+1. 推送代码到 `main` 或 `develop` 分支
+2. 在 Actions 标签页查看构建结果
+3. 构建完成后下载对应平台的安装包
+
+#### 🎯 手动选择平台构建
+1. 进入仓库的 **Actions** 标签页
+2. 选择 "Build Multi-Platform" 工作流
+3. 点击 **Run workflow** 按钮
+4. 选择要构建的平台：
+   - `all` - 构建所有平台
+   - `windows-x64` - 仅 Windows 64位
+   - `windows-x86` - 仅 Windows 32位
+   - `linux-x86_64` - 仅 Linux x86_64
+   - `linux-arm64` - 仅 Linux ARM64
+   - `macos-x86_64` - 仅 macOS Intel
+   - `macos-arm64` - 仅 macOS Apple Silicon
+5. 点击绿色的 **Run workflow** 开始构建
+
+详细说明请查看 [BUILD_PLATFORM_GUIDE.md](BUILD_PLATFORM_GUIDE.md)
 
 ### 快速发布
 ```bash
@@ -209,10 +224,11 @@ chmod +x scripts/build-macos.sh
 欢迎贡献代码！请查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详情。
 
 ## 相关文档
-- [BUILD.md](BUILD.md) - 详细编译说明
+- [START_HERE.md](START_HERE.md) - 快速开始指南
+- [BUILD_PLATFORM_GUIDE.md](BUILD_PLATFORM_GUIDE.md) - 🆕 多平台构建选择指南
 - [CROSS_PLATFORM.md](CROSS_PLATFORM.md) - 跨平台编译指南
 - [USAGE_GUIDE.md](USAGE_GUIDE.md) - 使用说明
-- [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md) - GitHub 工作流指南
+- [WORKFLOW_SETUP_SUMMARY.md](WORKFLOW_SETUP_SUMMARY.md) - 工作流配置总结
 - [CONTRIBUTING.md](CONTRIBUTING.md) - 贡献指南
 - [CHANGELOG.md](CHANGELOG.md) - 更新日志
 
