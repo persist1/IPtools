@@ -60,77 +60,55 @@ jobs:
         target: 'desktop'
         arch: ${{ matrix.arch }}
         modules: 'qtnetworkauth'
+        tools: 'tools_mingw,${{ matrix.mingw_tool_dir }}'
         cache: true
     
-    - name: Setup Qt and MinGW PATH
+    - name: Verify Qt and MinGW Installation
       shell: pwsh
       run: |
-        $qtDir = $env:Qt5_Dir
-        if (-not $qtDir) {
-          throw "Qt5_Dir 环境变量未设置，install-qt-action 可能失败了"
+        Write-Host "=== 环境变量检查 ==="
+        Write-Host "Qt5_Dir: $env:Qt5_Dir"
+        Write-Host ""
+        
+        Write-Host "=== PATH 检查 ==="
+        $env:PATH -split ';' | Where-Object { $_ -match 'Qt|mingw' } | ForEach-Object { Write-Host "  $_" }
+        Write-Host ""
+        
+        Write-Host "=== 工具检查 ==="
+        try {
+          $qmakeVersion = & qmake -v 2>&1
+          Write-Host "qmake: 找到"
+          Write-Host $qmakeVersion
+        } catch {
+          Write-Error "qmake: 未找到"
+          throw "qmake 不可用"
         }
-
-        Write-Host "Qt5_Dir = $qtDir"
-
-        $qtBin = Join-Path $qtDir 'bin'
-        if (Test-Path $qtBin) {
-          Write-Host "Adding Qt bin to PATH: $qtBin"
-          "$qtBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        } else {
-          Write-Host "Qt bin 目录不存在: $qtBin"
+        
+        try {
+          $gccVersion = & g++ --version 2>&1 | Select-Object -First 1
+          Write-Host "g++: 找到"
+          Write-Host $gccVersion
+        } catch {
+          Write-Error "g++: 未找到"
+          throw "g++ 编译器不可用"
         }
-
-        $qtRoot = (Get-Item $qtDir).Parent.Parent.FullName
-        $toolsDir = Join-Path $qtRoot 'Tools'
-        $targetTool = Join-Path $toolsDir '${{ matrix.mingw_tool_dir }}'
-        $targetBin = Join-Path $targetTool 'bin'
-
-        if (Test-Path $targetBin) {
-          Write-Host "Adding Qt MinGW toolchain to PATH: $targetBin"
-          "$targetBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        } else {
-          Write-Warning "Qt 自带的 MinGW 工具链未找到: $targetBin"
-          Write-Warning "尝试通过 Chocolatey 安装 MinGW..."
-          choco install mingw -y --no-progress
-          
-          # Chocolatey 安装的 mingw 可能在多个位置。
-          $possiblePaths = @(
-            'C:\ProgramData\mingw64\mingw64\bin',
-            'C:\ProgramData\mingw64\mingw32\bin',
-            'C:\tools\mingw64\bin',
-            'C:\tools\mingw32\bin'
-          )
-          
-          $foundPath = $null
-          foreach ($path in $possiblePaths) {
-            if (Test-Path $path) {
-              Write-Host "Found MinGW at: $path"
-              $foundPath = $path
-              break
-            }
-          }
-          
-          if ($foundPath) {
-            Write-Host "Adding fallback MinGW to PATH: $foundPath"
-            "$foundPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          } else {
-            Write-Error "MinGW 工具链未找到！尝试的路径："
-            $possiblePaths | ForEach-Object { Write-Error "  - $_" }
-            throw "无法定位 MinGW 工具链，构建无法继续"
-          }
+        
+        try {
+          $makeVersion = & mingw32-make --version 2>&1 | Select-Object -First 1
+          Write-Host "mingw32-make: 找到"
+          Write-Host $makeVersion
+        } catch {
+          Write-Error "mingw32-make: 未找到"
+          throw "mingw32-make 不可用"
         }
+        
+        Write-Host ""
+        Write-Host "=== 所有工具就绪，可以开始构建 ==="
     
     - name: Build Project
       shell: cmd
       run: |
-        echo "Qt version:"
-        qmake -v
-        echo.
-        echo "Compiler check:"
-        where g++
-        where mingw32-make
-        echo.
-        echo "Building..."
+        echo Building IPtools...
         qmake IPtools.pro CONFIG+=release
         mingw32-make -j4
     
