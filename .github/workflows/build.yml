@@ -89,26 +89,20 @@ jobs:
         }
         
         if (-not $mingwFound) {
-          Write-Host "No MinGW found, installing via Chocolatey..."
-          if ("${{ matrix.mingw_arch }}" -eq "i686") {
-            # 32位使用在线源
-            Write-Host "Installing 32-bit MinGW from sourceforge..."
-            $mingwUrl = "https://sourceforge.net/projects/mingw-w64/files/Toolchains%20targetting%20Win32/Personal%20Builds/mingw-builds/8.1.0/threads-posix/dwarf/i686-8.1.0-release-posix-dwarf-rt_v6-rev0.7z"
-            $downloadPath = Join-Path $env:TEMP "mingw32-8.1.0.7z"
-            $extractPath = "C:\Qt\Tools\mingw810_32"
-            
-            try {
-              Invoke-WebRequest -Uri $mingwUrl -OutFile $downloadPath -UseBasicParsing -TimeoutSec 300
-              New-Item -ItemType Directory -Force -Path $extractPath | Out-Null
-              7z x $downloadPath -o"$extractPath" -y
-              Write-Host "MinGW 32-bit installed to: $extractPath"
-            } catch {
-              Write-Warning "Failed to download 32-bit MinGW: $_"
+          $toolPackage = if ("${{ matrix.mingw_arch }}" -eq "i686") { "mingw810_32" } else { "mingw810_64" }
+          Write-Host "No MinGW found, installing via aqtinstall ($toolPackage)..."
+          try {
+            python -m pip install --upgrade pip aqtinstall
+            python -m aqt install-tool windows desktop tools_mingw $toolPackage --outputdir C:\\Qt\\Tools
+            Write-Host "MinGW installed via aqtinstall."
+          } catch {
+            Write-Warning "aqtinstall failed: $_"
+            Write-Host "Falling back to Chocolatey MinGW..."
+            if ("${{ matrix.mingw_arch }}" -eq "i686") {
               choco install mingw -y --no-progress --force --x86
+            } else {
+              choco install mingw -y --no-progress --force
             }
-          } else {
-            # 64位使用 Chocolatey
-            choco install mingw -y --no-progress --force
           }
         }
     
