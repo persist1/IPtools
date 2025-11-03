@@ -89,11 +89,13 @@ jobs:
         }
         
         if (-not $mingwFound) {
-          $toolPackage = if ("${{ matrix.mingw_arch }}" -eq "i686") { "mingw810_32" } else { "mingw810_64" }
-          Write-Host "No MinGW found, installing via aqtinstall ($toolPackage)..."
+          $toolVariant = if ("${{ matrix.mingw_arch }}" -eq "i686") { "qt.tools.win32_mingw810" } else { "qt.tools.win64_mingw810" }
+          Write-Host "No MinGW found, installing via aqtinstall ($toolVariant)..."
           try {
             python -m pip install --upgrade pip aqtinstall
-            python -m aqt install-tool windows desktop tools_mingw $toolPackage --outputdir C:\\Qt\\Tools
+            Write-Host "Listing available tools (aqt list-tool)..."
+            python -m aqt list-tool windows desktop tools_mingw
+            python -m aqt install-tool windows desktop tools_mingw $toolVariant --outputdir C:\\Qt\\Tools
             Write-Host "MinGW installed via aqtinstall."
           } catch {
             Write-Warning "aqtinstall failed: $_"
