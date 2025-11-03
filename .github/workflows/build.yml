@@ -59,39 +59,48 @@ jobs:
         host: 'windows'
         target: 'desktop'
         arch: ${{ matrix.arch }}
-        tools: 'tools_mingw,${{ matrix.mingw_dir }}'
         modules: 'qtnetworkauth'
         cache: true
     
-    - name: Verify MinGW Installation
+    - name: Install MinGW ${{ matrix.mingw_version }}
       shell: pwsh
       run: |
-        Write-Host "=== Verifying MinGW ${{ matrix.mingw_version }} for ${{ matrix.mingw_arch }} ==="
+        Write-Host "=== Installing MinGW ${{ matrix.mingw_version }} for ${{ matrix.mingw_arch }} ==="
         
-        $qtDir = "$env:Qt5_Dir"
-        Write-Host "Qt installed at: $qtDir"
-        Write-Host ""
+        $installDir = "C:\MinGW-${{ matrix.mingw_arch }}"
         
-        # 检查 install-qt-action 安装的 MinGW
-        $qtBase = Split-Path (Split-Path $qtDir -Parent) -Parent
-        Write-Host "Searching for MinGW in Qt base: $qtBase"
-        
-        $toolsDir = Join-Path $qtBase "Tools"
-        if (Test-Path $toolsDir) {
-          Write-Host "Tools directory exists, listing contents:"
-          Get-ChildItem -Path $toolsDir -Directory | ForEach-Object {
-            Write-Host "  - $($_.Name)"
-            $binPath = Join-Path $_.FullName "bin"
-            if (Test-Path $binPath) {
-              $gccPath = Join-Path $binPath "g++.exe"
-              if (Test-Path $gccPath) {
-                $gccVer = & $gccPath --version 2>&1 | Select-Object -First 1
-                Write-Host "    Found g++: $gccVer"
-              }
-            }
-          }
+        if ("${{ matrix.mingw_arch }}" -eq "i686") {
+          # 32位：从 WinLibs 下载（MinGW-w64 8.1.0 i686-posix-dwarf）
+          $mingwUrl = "https://github.com/brechtsanders/winlibs_mingw/releases/download/8.1.0-6.0.1-r0/i686-8.1.0-release-posix-dwarf-rt_v6-rev0.7z"
+          $archiveName = "mingw32-8.1.0.7z"
         } else {
-          Write-Warning "Tools directory not found at: $toolsDir"
+          # 64位：从 WinLibs 下载（MinGW-w64 8.1.0 x86_64-posix-seh）
+          $mingwUrl = "https://github.com/brechtsanders/winlibs_mingw/releases/download/8.1.0-6.0.1-r0/x86_64-8.1.0-release-posix-seh-rt_v6-rev0.7z"
+          $archiveName = "mingw64-8.1.0.7z"
+        }
+        
+        $downloadPath = Join-Path $env:TEMP $archiveName
+        
+        try {
+          Write-Host "Downloading from: $mingwUrl"
+          Invoke-WebRequest -Uri $mingwUrl -OutFile $downloadPath -UseBasicParsing -TimeoutSec 600
+          
+          Write-Host "Extracting to: $installDir"
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+          7z x $downloadPath -o"$installDir" -y
+          
+          # 检查解压结果
+          Write-Host "Checking extracted files:"
+          Get-ChildItem -Path $installDir -Recurse -Depth 2 -Filter "g++.exe" | ForEach-Object {
+            Write-Host "  Found: $($_.FullName)"
+            $gccVer = & $_.FullName --version 2>&1 | Select-Object -First 1
+            Write-Host "  Version: $gccVer"
+          }
+          
+          Write-Host "MinGW ${{ matrix.mingw_arch }} installed successfully"
+        } catch {
+          Write-Error "Failed to install MinGW: $_"
+          throw
         }
     
     - name: Setup Build Environment
@@ -111,41 +120,38 @@ jobs:
           $qtBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         }
 
-        # 查找 install-qt-action 安装的 MinGW
-        $qtBase = Split-Path (Split-Path $env:Qt5_Dir -Parent) -Parent
-        $qtToolsBase = Join-Path $qtBase "Tools"
-        
-        Write-Host "Searching for MinGW in: $qtToolsBase"
+        # 查找 MinGW
+        Write-Host "Searching for MinGW..."
         
         # 构建搜索路径列表
         $mingwPaths = @()
         
-        # 1. 优先搜索 install-qt-action 安装的 Tools 目录
-        if (Test-Path $qtToolsBase) {
-          Get-ChildItem -Path $qtToolsBase -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            $binPath = Join-Path $_.FullName "bin"
-            if (Test-Path $binPath) {
-              $mingwPaths += $binPath
-            }
+        # 1. 我们下载安装的 MinGW
+        $customInstall = "C:\MinGW-${{ matrix.mingw_arch }}"
+        if (Test-Path $customInstall) {
+          Write-Host "Checking custom installation: $customInstall"
+          Get-ChildItem -Path $customInstall -Recurse -Depth 3 -Filter "g++.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+            $binDir = $_.DirectoryName
+            Write-Host "  Found g++ in: $binDir"
+            $mingwPaths += $binDir
           }
         }
         
-        # 2. 添加标准路径作为后备
-        $mingwPaths += @(
-          "C:\Qt\Tools\${{ matrix.mingw_dir }}\bin",
-          "C:\Qt\Tools\mingw810_64\bin",
-          "C:\Qt\Tools\mingw810_32\bin"
-        )
+        # 2. 标准路径
+        if ("${{ matrix.mingw_arch }}" -eq "x86_64") {
+          $mingwPaths += @(
+            'C:\ProgramData\mingw64\mingw64\bin',
+            'C:\tools\mingw64\bin'
+          )
+        } else {
+          $mingwPaths += @(
+            'C:\ProgramData\mingw32\mingw32\bin',
+            'C:\tools\mingw32\bin'
+          )
+        }
         
         Write-Host "Candidate MinGW paths:"
         $mingwPaths | ForEach-Object { Write-Host "  - $_" }
-        
-        # 根据架构添加后备路径（仅作为最后选择）
-        if ("${{ matrix.mingw_arch }}" -eq "x86_64") {
-          $mingwPaths += @('C:\ProgramData\mingw64\mingw64\bin', 'C:\tools\mingw64\bin')
-        } else {
-          $mingwPaths += @('C:\ProgramData\mingw32\mingw32\bin', 'C:\tools\mingw32\bin')
-        }
         
         $foundMinGW = $false
         foreach ($path in $mingwPaths) {
