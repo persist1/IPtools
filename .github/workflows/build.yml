@@ -59,53 +59,39 @@ jobs:
         host: 'windows'
         target: 'desktop'
         arch: ${{ matrix.arch }}
+        tools: 'tools_mingw,${{ matrix.mingw_dir }}'
         modules: 'qtnetworkauth'
         cache: true
     
-    - name: Install MinGW ${{ matrix.mingw_version }}
+    - name: Verify MinGW Installation
       shell: pwsh
       run: |
-        Write-Host "=== Installing MinGW ${{ matrix.mingw_version }} for ${{ matrix.mingw_arch }} ==="
+        Write-Host "=== Verifying MinGW ${{ matrix.mingw_version }} for ${{ matrix.mingw_arch }} ==="
         
-        # 从 install-qt-action 安装的 Qt 包中查找 MinGW
         $qtDir = "$env:Qt5_Dir"
         Write-Host "Qt installed at: $qtDir"
+        Write-Host ""
         
-        # install-qt-action 通常会自动安装匹配的 MinGW
-        # 检查 Qt 安装目录附近是否有 MinGW
-        $possibleMingwPaths = @(
-          (Join-Path (Split-Path $qtDir -Parent) "Tools/mingw810_64/bin"),
-          (Join-Path (Split-Path $qtDir -Parent) "Tools/mingw810_32/bin"),
-          (Join-Path (Split-Path (Split-Path $qtDir -Parent) -Parent) "Tools/mingw810_64/bin"),
-          (Join-Path (Split-Path (Split-Path $qtDir -Parent) -Parent) "Tools/mingw810_32/bin")
-        )
+        # 检查 install-qt-action 安装的 MinGW
+        $qtBase = Split-Path (Split-Path $qtDir -Parent) -Parent
+        Write-Host "Searching for MinGW in Qt base: $qtBase"
         
-        $mingwFound = $false
-        foreach ($path in $possibleMingwPaths) {
-          if (Test-Path $path) {
-            Write-Host "Found existing MinGW at: $path"
-            $mingwFound = $true
-          }
-        }
-        
-        if (-not $mingwFound) {
-          $toolVariant = if ("${{ matrix.mingw_arch }}" -eq "i686") { "qt.tools.win32_mingw810" } else { "qt.tools.win64_mingw810" }
-          Write-Host "No MinGW found, installing via aqtinstall ($toolVariant)..."
-          try {
-            python -m pip install --upgrade pip aqtinstall
-            Write-Host "Listing available tools (aqt list-tool)..."
-            python -m aqt list-tool windows desktop tools_mingw
-            python -m aqt install-tool windows desktop tools_mingw $toolVariant --outputdir C:\\Qt\\Tools
-            Write-Host "MinGW installed via aqtinstall."
-          } catch {
-            Write-Warning "aqtinstall failed: $_"
-            Write-Host "Falling back to Chocolatey MinGW..."
-            if ("${{ matrix.mingw_arch }}" -eq "i686") {
-              choco install mingw -y --no-progress --force --x86
-            } else {
-              choco install mingw -y --no-progress --force
+        $toolsDir = Join-Path $qtBase "Tools"
+        if (Test-Path $toolsDir) {
+          Write-Host "Tools directory exists, listing contents:"
+          Get-ChildItem -Path $toolsDir -Directory | ForEach-Object {
+            Write-Host "  - $($_.Name)"
+            $binPath = Join-Path $_.FullName "bin"
+            if (Test-Path $binPath) {
+              $gccPath = Join-Path $binPath "g++.exe"
+              if (Test-Path $gccPath) {
+                $gccVer = & $gccPath --version 2>&1 | Select-Object -First 1
+                Write-Host "    Found g++: $gccVer"
+              }
             }
           }
+        } else {
+          Write-Warning "Tools directory not found at: $toolsDir"
         }
     
     - name: Setup Build Environment
@@ -125,33 +111,34 @@ jobs:
           $qtBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         }
 
-        # 查找并添加 MinGW（优先使用 Qt 官方与已解压路径）
-        # 先探测解压后的实际目录结构
-        $extractedBase = "C:\Qt\Tools\${{ matrix.mingw_dir }}"
-        Write-Host "Checking extracted MinGW structure at: $extractedBase"
-        if (Test-Path $extractedBase) {
-          Get-ChildItem -Path $extractedBase -Recurse -Depth 2 -Filter "g++.exe" -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Host "  Found g++.exe at: $($_.FullName)"
+        # 查找 install-qt-action 安装的 MinGW
+        $qtBase = Split-Path (Split-Path $env:Qt5_Dir -Parent) -Parent
+        $qtToolsBase = Join-Path $qtBase "Tools"
+        
+        Write-Host "Searching for MinGW in: $qtToolsBase"
+        
+        # 构建搜索路径列表
+        $mingwPaths = @()
+        
+        # 1. 优先搜索 install-qt-action 安装的 Tools 目录
+        if (Test-Path $qtToolsBase) {
+          Get-ChildItem -Path $qtToolsBase -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $binPath = Join-Path $_.FullName "bin"
+            if (Test-Path $binPath) {
+              $mingwPaths += $binPath
+            }
           }
         }
         
-        $mingwPaths = @(
-          "C:\Qt\Tools\${{ matrix.mingw_dir }}\mingw64\bin",
-          "C:\Qt\Tools\${{ matrix.mingw_dir }}\mingw32\bin",
-          "C:\Qt\Tools\${{ matrix.mingw_dir }}\bin"
+        # 2. 添加标准路径作为后备
+        $mingwPaths += @(
+          "C:\Qt\Tools\${{ matrix.mingw_dir }}\bin",
+          "C:\Qt\Tools\mingw810_64\bin",
+          "C:\Qt\Tools\mingw810_32\bin"
         )
         
-        # 添加 Qt 安装目录附近的 Tools 路径
-        $qtToolsBase = Join-Path (Split-Path (Split-Path $env:Qt5_Dir -Parent) -Parent) "Tools"
-        if (Test-Path $qtToolsBase) {
-          Write-Host "Checking Qt Tools directory: $qtToolsBase"
-          $mingwPaths += @(
-            (Join-Path $qtToolsBase "mingw810_64/bin"),
-            (Join-Path $qtToolsBase "mingw810_32/bin"),
-            (Join-Path $qtToolsBase "mingw810_64/mingw64/bin"),
-            (Join-Path $qtToolsBase "mingw810_32/mingw32/bin")
-          )
-        }
+        Write-Host "Candidate MinGW paths:"
+        $mingwPaths | ForEach-Object { Write-Host "  - $_" }
         
         # 根据架构添加后备路径（仅作为最后选择）
         if ("${{ matrix.mingw_arch }}" -eq "x86_64") {
