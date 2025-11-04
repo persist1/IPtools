@@ -50,7 +50,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     
     - name: Install Qt
       uses: jurplel/install-qt-action@v3
@@ -210,7 +210,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     
     - name: Install Dependencies (x86_64)
       if: matrix.arch == 'x86_64'
