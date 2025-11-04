@@ -1,6 +1,6 @@
 ﻿# IP工具箱
 
-> 🚀 **首次使用？** 查看 [START_HERE.md](START_HERE.md) 快速上传到 GitHub！
+> 🚀 **首次使用？** 请先阅读下方“编译步骤”章节，或参考 [USAGE_GUIDE.md](USAGE_GUIDE.md) 获取更详细的操作说明。
 
 一个基于Qt开发的跨平台系统工具，提供文件句柄查询、进程管理和IP地址查询功能。
 
@@ -185,7 +185,7 @@ make
    - `macos-arm64` - 仅 macOS Apple Silicon
 5. 点击绿色的 **Run workflow** 开始构建
 
-详细说明请查看 [BUILD_PLATFORM_GUIDE.md](BUILD_PLATFORM_GUIDE.md)
+如需更多工作流示例，可参考仓库的 GitHub Actions 配置文件。
 
 ### 快速发布
 ```bash
@@ -225,13 +225,7 @@ chmod +x scripts/build-macos.sh
 欢迎贡献代码！请查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详情。
 
 ## 相关文档
-- [START_HERE.md](START_HERE.md) - 快速开始指南
-- [BUILD_PLATFORM_GUIDE.md](BUILD_PLATFORM_GUIDE.md) - 🆕 多平台构建选择指南
-- [GITHUB_ACTIONS_FAQ.md](GITHUB_ACTIONS_FAQ.md) - 🆕 GitHub Actions 常见问题解答
-- [PLATFORM_BUILD_QUICK_REF.md](PLATFORM_BUILD_QUICK_REF.md) - 快速参考
-- [CROSS_PLATFORM.md](CROSS_PLATFORM.md) - 跨平台编译指南
 - [USAGE_GUIDE.md](USAGE_GUIDE.md) - 使用说明
-- [WORKFLOW_SETUP_SUMMARY.md](WORKFLOW_SETUP_SUMMARY.md) - 工作流配置总结
 - [CONTRIBUTING.md](CONTRIBUTING.md) - 贡献指南
 - [CHANGELOG.md](CHANGELOG.md) - 更新日志
 

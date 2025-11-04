@@ -24,7 +24,7 @@
 - ✅ 添加缓存容错处理
 
 ### 📝 文档更新
-- ✅ 新增 [BUILD_PLATFORM_GUIDE.md](BUILD_PLATFORM_GUIDE.md) - 详细的平台选择构建指南
+- ✅ 新增多平台构建选择指南（已合并至 README.md）
 - ✅ 更新 README.md - 添加手动构建说明
 - ✅ 改进文档结构和导航
 

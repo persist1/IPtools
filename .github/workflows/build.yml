@@ -270,41 +270,52 @@ jobs:
         cp README.md AppDir/usr/ || true
         ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage || echo "AppImage creation failed, continuing..."
     
-    - name: Create Archive (x86_64)
+    - name: Prepare Artifact (x86_64)
       if: matrix.arch == 'x86_64'
       run: |
-        mkdir -p dist
+        package_dir="IPtools-Linux-${{ matrix.arch }}"
+        rm -rf "$package_dir"
+        mkdir -p "$package_dir"
+
         if [ -f "IPtools" ]; then
-          cp IPtools dist/
+          cp IPtools "$package_dir/"
         fi
-        cp README.md dist/ || true
-        cp USAGE_GUIDE.md dist/ || true
-        cp LICENSE dist/ || true
-        tar -czf IPtools-Linux-${{ matrix.arch }}.tar.gz -C dist .
+
+        if [ -f README.md ]; then
+          cp README.md "$package_dir/"
+        fi
+
+        shopt -s nullglob
+        for app in *.AppImage; do
+          cp "$app" "$package_dir/"
+        done
+        shopt -u nullglob
     
     - name: Create Placeholder Archive (ARM64)
       if: matrix.arch == 'aarch64'
       run: |
-        mkdir -p dist
-        echo "ARM64 构建说明：" > dist/README.txt
-        echo "此版本仅完成了源码编译验证。" >> dist/README.txt
-        echo "要获得可运行的 ARM64 二进制文件，请在 ARM64 Linux 主机上手动构建。" >> dist/README.txt
-        echo "" >> dist/README.txt
-        echo "构建步骤：" >> dist/README.txt
-        echo "1. sudo apt-get install qt5-default qtbase5-dev build-essential" >> dist/README.txt
-        echo "2. qmake IPtools.pro CONFIG+=release" >> dist/README.txt
-        echo "3. make -j\$(nproc)" >> dist/README.txt
-        cp README.md dist/ || true
-        tar -czf IPtools-Linux-${{ matrix.arch }}.tar.gz -C dist .
+        package_dir="IPtools-Linux-${{ matrix.arch }}-Instructions"
+        rm -rf "$package_dir"
+        mkdir -p "$package_dir"
+
+        cat <<'EOF' > "$package_dir/README.txt"
+ARM64 构建说明：
+此版本仅完成了源码编译验证。
+要获得可运行的 ARM64 二进制文件，请在 ARM64 Linux 主机上手动构建。
+
+建议步骤：
+1. sudo apt-get install qtbase5-dev qttools5-dev-tools build-essential
+2. qmake IPtools.pro CONFIG+=release
+3. make -j$(nproc)
+EOF
     
     - name: Upload Artifact
       if: matrix.arch == 'x86_64'
       uses: actions/upload-artifact@v4
       with:
         name: IPtools-Linux-${{ matrix.arch }}
-        path: |
-          IPtools-Linux-${{ matrix.arch }}.tar.gz
-          *.AppImage
+        path: IPtools-Linux-${{ matrix.arch }}
+        if-no-files-found: error
         retention-days: 30
     
     - name: Upload Placeholder (ARM64)
@@ -312,7 +323,8 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: IPtools-Linux-${{ matrix.arch }}-BuildInstructions
-        path: IPtools-Linux-${{ matrix.arch }}.tar.gz
+        path: IPtools-Linux-${{ matrix.arch }}-Instructions
+        if-no-files-found: error
         retention-days: 30
 
   # macOS 构建已移除（暂不支持）
