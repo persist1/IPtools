@@ -163,28 +163,35 @@ jobs:
         if not exist platforms mkdir platforms
         copy "%Qt5_Dir%\plugins\platforms\qwindows.dll" platforms\ /Y
     
-    - name: Create Archive
+    - name: Prepare Artifact
       shell: pwsh
       run: |
-        $archName = "IPtools-Windows-${{ matrix.mingw_arch }}"
-        New-Item -ItemType Directory -Force -Path dist
-        Copy-Item -Path release/IPtools.exe -Destination dist/
-        Copy-Item -Path README.md -Destination dist/ -ErrorAction SilentlyContinue
-        Copy-Item -Path USAGE_GUIDE.md -Destination dist/ -ErrorAction SilentlyContinue
-        Copy-Item -Path LICENSE -Destination dist/ -ErrorAction SilentlyContinue
-        Copy-Item -Path release/*.dll -Destination dist/ -ErrorAction SilentlyContinue
-        Compress-Archive -Path dist/* -DestinationPath "$archName.zip"
+        $packageDir = "IPtools-Windows-${{ matrix.mingw_arch }}"
+        Remove-Item -Path $packageDir -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+
+        # 拷贝发布内容
+        if (Test-Path 'release') {
+          Copy-Item -Path 'release\*' -Destination $packageDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        # 附带文档
+        Copy-Item -Path README.md -Destination $packageDir/ -ErrorAction SilentlyContinue
+        Copy-Item -Path USAGE_GUIDE.md -Destination $packageDir/ -ErrorAction SilentlyContinue
+        Copy-Item -Path LICENSE -Destination $packageDir/ -ErrorAction SilentlyContinue
     
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: IPtools-Windows-${{ matrix.mingw_arch }}
-        path: IPtools-Windows-${{ matrix.mingw_arch }}.zip
+        path: IPtools-Windows-${{ matrix.mingw_arch }}
+        if-no-files-found: error
         retention-days: 30
 
   build-linux:
     name: Build Linux (${{ matrix.arch }})
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: |
       github.event_name != 'workflow_dispatch' || 
       github.event.inputs.platform == 'all' || 
@@ -207,18 +214,30 @@ jobs:
     
     - name: Install Dependencies (x86_64)
       if: matrix.arch == 'x86_64'
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
+        sudo rm -rf /var/lib/apt/lists/*
         sudo apt-get update
-        sudo apt-get install -y qt5-default qtbase5-dev qttools5-dev-tools \
-          build-essential lsof libgl1-mesa-dev
-    
+        sudo apt-get install -y --no-install-recommends qtbase5-dev qttools5-dev-tools build-essential lsof libgl1-mesa-dev
+
+    - name: Install Additional Qt Tools (x86_64)
+      if: matrix.arch == 'x86_64'
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo snap install qt515core20 --classic || true
+        sudo apt-get install -y --no-install-recommends qt5-image-formats-plugins qt5-qmake qttools5-dev
+
     - name: Install Dependencies (ARM64)
       if: matrix.arch == 'aarch64'
       timeout-minutes: 10
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
+        sudo rm -rf /var/lib/apt/lists/*
         sudo apt-get update
-        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-          qtbase5-dev qttools5-dev-tools build-essential
+        sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu g++-aarch64-linux-gnu qtbase5-dev qttools5-dev-tools build-essential
         echo "ARM64 交叉编译环境已安装"
     
     - name: Build Project (x86_64)
