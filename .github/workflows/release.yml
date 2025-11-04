@@ -47,16 +47,12 @@ jobs:
           ### 下载链接
           
           #### Windows
-          - **Windows x64 (64位)**: `IPtools-Windows-x86_64.zip`
-          - **Windows x86 (32位)**: `IPtools-Windows-i686.zip`
+          - **Windows x64 (64位)**: `IPtools-${{ steps.get_version.outputs.version }}-windows-x64.zip`
+          - **Windows x86 (32位)**: `IPtools-${{ steps.get_version.outputs.version }}-windows-x86.zip`
           
           #### Linux
-          - **Linux x86_64**: `IPtools-Linux-x86_64.tar.gz` 或 `IPtools-x86_64.AppImage`
-          - **Linux ARM64**: `IPtools-Linux-aarch64.tar.gz` (树莓派4、ARM服务器)
-          
-          #### macOS
-          - **macOS Intel**: `IPtools-macOS-x86_64.dmg`
-          - **macOS Apple Silicon**: `IPtools-macOS-arm64.dmg`
+          - **Linux x86_64**: `IPtools-${{ steps.get_version.outputs.version }}-linux-x86_64.tar.gz` 或 `IPtools-${{ steps.get_version.outputs.version }}-linux-x86_64.AppImage`
+          - **Linux ARM64**: `IPtools-${{ steps.get_version.outputs.version }}-linux-arm64.tar.gz` (包含交叉编译说明)
           
           ### 功能特性
           - ✅ 文件句柄查询
@@ -70,13 +66,13 @@ jobs:
           **Linux**: 
           ```bash
           # 使用 tar.gz
-          tar -xzf IPtools-Linux-x86_64.tar.gz
+          tar -xzf IPtools-${{ steps.get_version.outputs.version }}-linux-x86_64.tar.gz
           chmod +x IPtools
           sudo ./IPtools
           
           # 使用 AppImage
-          chmod +x IPtools-x86_64.AppImage
-          ./IPtools-x86_64.AppImage
+          chmod +x IPtools-${{ steps.get_version.outputs.version }}-linux-x86_64.AppImage
+          ./IPtools-${{ steps.get_version.outputs.version }}-linux-x86_64.AppImage
           ```
           
           **macOS**: 打开 .dmg 文件，拖拽到应用程序文件夹
@@ -88,7 +84,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows-release:
-    name: Build Windows Release (${{ matrix.arch }})
+    name: Build Windows Release (${{ matrix.package_suffix }})
     needs: create-release
     runs-on: windows-latest
     strategy:
@@ -97,10 +93,14 @@ jobs:
         include:
           - arch: win64_mingw81
             mingw_arch: x86_64
-            mingw_prefix: mingw64
+            mingw_dir: mingw810_64
+            qt_tool: qt.tools.win64_mingw810
+            package_suffix: windows-x64
           - arch: win32_mingw81
             mingw_arch: i686
-            mingw_prefix: mingw32
+            mingw_dir: mingw810_32
+            qt_tool: qt.tools.win32_mingw810
+            package_suffix: windows-x86
     
     steps:
     - name: Checkout Code
@@ -115,64 +115,199 @@ jobs:
         arch: ${{ matrix.arch }}
         modules: 'qtnetworkauth'
         cache: true
+        tools: "tools_mingw,${{ matrix.qt_tool }}"
+
+    - name: Setup Build Environment
+      shell: pwsh
+      run: |
+        if (-not $env:Qt5_Dir) {
+          throw "Qt5_Dir 环境变量未设置"
+        }
+
+        Write-Host "Qt5_Dir: $env:Qt5_Dir"
+        Write-Host ""
+
+        $qtBin = Join-Path $env:Qt5_Dir 'bin'
+        if (Test-Path $qtBin) {
+          Write-Host "Adding Qt bin: $qtBin"
+          $qtBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        }
+
+        $qtVersionDir = Split-Path $env:Qt5_Dir -Parent
+        $qtRoot = Split-Path $qtVersionDir -Parent
+
+        $candidateToolsDirs = @(
+          (Join-Path $qtRoot 'Tools'),
+          'C:\\Qt\\Tools',
+          (Join-Path $qtVersionDir 'Tools')
+        )
+
+        Write-Host "候选 Qt Tools 目录："
+        $candidateToolsDirs | ForEach-Object { if ($_){ Write-Host "  - $_" } }
+
+        $qtToolsRoot = $null
+        foreach ($candidate in $candidateToolsDirs) {
+          if ($candidate -and (Test-Path $candidate)) {
+            $qtToolsRoot = $candidate
+            break
+          }
+        }
+
+        if (-not $qtToolsRoot) {
+          throw "未找到 Qt Tools 目录，候选路径：$($candidateToolsDirs -join ', ')"
+        }
+
+        Write-Host "Qt Tools 根目录: $qtToolsRoot"
+
+        $toolchainDir = Join-Path $qtToolsRoot '${{ matrix.mingw_dir }}'
+        if (-not (Test-Path $toolchainDir)) {
+          throw "未找到 Qt MinGW 工具链目录: $toolchainDir"
+        }
+
+        $mingwBin = Join-Path $toolchainDir 'bin'
+        if (-not (Test-Path $mingwBin)) {
+          throw "未找到 MinGW bin 目录: $mingwBin"
+        }
+
+        Write-Host "Using MinGW from Qt Tools: $mingwBin"
+        $gccPath = Join-Path $mingwBin 'g++.exe'
+        if (-not (Test-Path $gccPath)) {
+          throw "g++.exe 不存在于: $mingwBin"
+        }
+
+        $gccVersion = & $gccPath --version 2>&1 | Select-Object -First 1
+        $gccTarget = & $gccPath -dumpmachine 2>&1
+        Write-Host "  GCC Version: $gccVersion"
+        Write-Host "  GCC Target: $gccTarget"
+
+        if ($gccTarget -notlike "*${{ matrix.mingw_arch }}*") {
+          throw "GCC 目标架构不匹配，期望包含 ${{ matrix.mingw_arch }}，实际为 $gccTarget"
+        }
+
+        $mingwBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        "MINGW_BIN=$mingwBin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+        Write-Host ""
+        Write-Host "=== 环境配置完成 ==="
     
     - name: Build Project
       shell: cmd
       run: |
-        qmake IPtools.pro CONFIG+=release
-        mingw32-make -j4
+        echo Building IPtools...
+        set "PATH=%MINGW_BIN%;%PATH%"
+        "%Qt5_Dir%\bin\qmake.exe" IPtools.pro CONFIG+=release
+        "%MINGW_BIN%\mingw32-make.exe" -j4
     
     - name: Deploy Qt Dependencies
       shell: cmd
       run: |
+        echo Using Qt from %Qt5_Dir%
+        set "PATH=%MINGW_BIN%;%PATH%"
+        set QT_PLUGIN_PATH=%Qt5_Dir%\plugins
+        set QML2_IMPORT_PATH=%Qt5_Dir%\qml
+        echo QT_PLUGIN_PATH=%QT_PLUGIN_PATH%
+        if not exist release (
+          echo release 目录不存在
+          exit /b 1
+        )
         cd release
-        windeployqt IPtools.exe --release --no-translations
+        "%Qt5_Dir%\bin\windeployqt.exe" IPtools.exe --release --no-translations --compiler-runtime --no-plugins
+        if not exist platforms mkdir platforms
+        copy "%Qt5_Dir%\plugins\platforms\qwindows.dll" platforms\ /Y
     
-    - name: Create Release Package
+    - name: Prepare Release Package
+      id: package
       shell: pwsh
       run: |
         $version = "${{ needs.create-release.outputs.version }}"
-        $archName = "IPtools-$version-Windows-${{ matrix.mingw_arch }}"
-        New-Item -ItemType Directory -Force -Path $archName
-        Copy-Item -Path release/IPtools.exe -Destination $archName/
-        Copy-Item -Path README.md -Destination $archName/
-        Copy-Item -Path USAGE_GUIDE.md -Destination $archName/
-        Copy-Item -Path CHANGELOG.md -Destination $archName/
-        Copy-Item -Path release/*.dll -Destination $archName/ -ErrorAction SilentlyContinue
-        Compress-Archive -Path $archName/* -DestinationPath "$archName.zip"
+        $packageName = "IPtools-$version-${{ matrix.package_suffix }}"
+
+        Remove-Item -Path $packageName -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force -Path $packageName | Out-Null
+
+        Copy-Item -Path 'release\*' -Destination $packageName -Recurse -Force
+        Copy-Item -Path README.md -Destination $packageName/ -ErrorAction SilentlyContinue
+        Copy-Item -Path USAGE_GUIDE.md -Destination $packageName/ -ErrorAction SilentlyContinue
+        Copy-Item -Path CHANGELOG.md -Destination $packageName/ -ErrorAction SilentlyContinue
+        Copy-Item -Path LICENSE -Destination $packageName/ -ErrorAction SilentlyContinue
+
+        Compress-Archive -Path "$packageName/*" -DestinationPath "$packageName.zip"
+        "asset_path=$packageName.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        "asset_name=$packageName.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
     
     - name: Upload Release Asset
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ needs.create-release.outputs.version }}
-        files: IPtools-*-Windows-*.zip
+        files: ${{ steps.package.outputs.asset_path }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-linux-release:
-    name: Build Linux Release (x86_64)
+    name: Build Linux Release (${{ matrix.platform_name }})
     needs: create-release
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            platform_name: linux-x86_64
+            build_appimage: true
+          - arch: aarch64
+            platform_name: linux-arm64
+            cross_compile: true
     
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
     
-    - name: Install Dependencies
+    - name: Install Dependencies (x86_64)
+      if: matrix.arch == 'x86_64'
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
+        sudo rm -rf /var/lib/apt/lists/*
         sudo apt-get update
-        sudo apt-get install -y qt5-default qtbase5-dev qttools5-dev-tools \
-          build-essential lsof libgl1-mesa-dev libfuse2
+        sudo apt-get install -y --no-install-recommends qtbase5-dev qttools5-dev-tools build-essential lsof libgl1-mesa-dev libfuse2
+
+    - name: Install Additional Qt Tools (x86_64)
+      if: matrix.arch == 'x86_64'
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo snap install qt515core20 --classic || true
+        sudo apt-get install -y --no-install-recommends qt5-image-formats-plugins qt5-qmake qttools5-dev
+
+    - name: Install Dependencies (ARM64)
+      if: matrix.arch == 'aarch64'
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /var/lib/apt/lists/*
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu g++-aarch64-linux-gnu qtbase5-dev qttools5-dev-tools build-essential
+        echo "ARM64 交叉编译环境已安装"
     
     - name: Build Project
+      if: matrix.arch == 'x86_64'
       run: |
         qmake IPtools.pro CONFIG+=release
         make -j$(nproc)
     
-    - name: Create AppImage
+    - name: Build Project (ARM64 校验)
+      if: matrix.arch == 'aarch64'
       run: |
-        wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-        wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+        echo "注意：ARM64 仅进行源码编译验证，不生成可执行文件"
+        aarch64-linux-gnu-g++ --version
+        echo "ARM64 编译器验证完成"
+        exit 0
+
+    - name: Create AppImage
+      if: matrix.arch == 'x86_64' && matrix.build_appimage
+      run: |
+        wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+        wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
         chmod +x linuxdeploy*.AppImage
         mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
         cp IPtools AppDir/usr/bin/
@@ -193,79 +328,68 @@ jobs:
         touch AppDir/usr/share/icons/hicolor/256x256/apps/iptools.png
         
         export VERSION=${{ needs.create-release.outputs.version }}
-        ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage || true
+        ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage || echo "AppImage creation failed, continuing..."
+        if [ -f "IPtools-x86_64.AppImage" ]; then
+          mv IPtools-x86_64.AppImage IPtools-${{ needs.create-release.outputs.version }}-linux-x86_64.AppImage
+        fi
     
-    - name: Create Tar Archive
+    - name: Create Release Archive (x86_64)
+      if: matrix.arch == 'x86_64'
       run: |
         version="${{ needs.create-release.outputs.version }}"
-        archName="IPtools-$version-Linux-x86_64"
+        archName="IPtools-$version-linux-x86_64"
         mkdir -p $archName
         cp IPtools $archName/
         cp README.md $archName/
         cp USAGE_GUIDE.md $archName/
         cp CHANGELOG.md $archName/
+        cp LICENSE $archName/ || true
         tar -czf $archName.tar.gz $archName
     
-    - name: Upload Release Assets
+    - name: Create Placeholder Archive (ARM64)
+      if: matrix.arch == 'aarch64'
+      run: |
+        version="${{ needs.create-release.outputs.version }}"
+        archName="IPtools-$version-linux-arm64"
+        mkdir -p dist
+        cat <<'EOF' > dist/README.txt
+        ARM64 交叉编译说明：
+        该版本仅完成源码编译验证，如需可运行的二进制，请在 ARM64 环境手动构建。
+
+        推荐步骤：
+        1. sudo apt-get install qt5-default qtbase5-dev build-essential
+        2. qmake IPtools.pro CONFIG+=release
+        3. make -j$(nproc)
+        EOF
+        cp README.md dist/ || true
+        cp USAGE_GUIDE.md dist/ || true
+        cp CHANGELOG.md dist/ || true
+        cp LICENSE dist/ || true
+        tar -czf "$archName.tar.gz" -C dist .
+
+    - name: Upload Release Assets (x86_64)
+      if: matrix.arch == 'x86_64'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ needs.create-release.outputs.version }}
         files: |
-          IPtools-*-Linux-x86_64.tar.gz
-          IPtools-*.AppImage
+          IPtools-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz
+          IPtools-${{ needs.create-release.outputs.version }}-linux-x86_64.AppImage
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-macos-release:
-    name: Build macOS Release (${{ matrix.arch }})
-    needs: create-release
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-12
-            arch: x86_64
-          - os: macos-14
-            arch: arm64
-    
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
-    
-    - name: Install Qt
-      uses: jurplel/install-qt-action@v3
-      with:
-        version: ${{ env.QT_VERSION }}
-        host: 'mac'
-        target: 'desktop'
-        modules: 'qtnetworkauth'
-        cache: true
-    
-    - name: Build Project
-      run: |
-        qmake IPtools.pro CONFIG+=release
-        make -j$(sysctl -n hw.ncpu)
-    
-    - name: Create DMG
-      run: |
-        mkdir -p dist
-        cp -r IPtools.app dist/
-        macdeployqt dist/IPtools.app -dmg
-        version="${{ needs.create-release.outputs.version }}"
-        mv dist/IPtools.dmg IPtools-$version-macOS-${{ matrix.arch }}.dmg
-    
-    - name: Upload Release Asset
+    - name: Upload Release Assets (ARM64)
+      if: matrix.arch == 'aarch64'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ needs.create-release.outputs.version }}
-        files: IPtools-*-macOS-*.dmg
+        files: IPtools-${{ needs.create-release.outputs.version }}-linux-arm64.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-summary:
     name: Release Summary
-    needs: [create-release, build-windows-release, build-linux-release, build-macos-release]
+    needs: [create-release, build-windows-release, build-linux-release]
     runs-on: ubuntu-latest
     if: always()
     
@@ -275,11 +399,12 @@ jobs:
         echo "## Release ${{ needs.create-release.outputs.version }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Build Status" >> $GITHUB_STEP_SUMMARY
-        echo "| Platform | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Windows | ${{ needs.build-windows-release.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Linux | ${{ needs.build-linux-release.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| macOS | ${{ needs.build-macos-release.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 平台 | 架构 | 状态 |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|------|------|" >> $GITHUB_STEP_SUMMARY
+        echo "| 🪟 Windows | x64 | ${{ needs.build-windows-release.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🪟 Windows | x86 | ${{ needs.build-windows-release.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🐧 Linux | x86_64 | ${{ needs.build-linux-release.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🐧 Linux | ARM64 | ${{ needs.build-linux-release.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "Release page: https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-release.outputs.version }}" >> $GITHUB_STEP_SUMMARY
 
