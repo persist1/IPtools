@@ -81,7 +81,32 @@ jobs:
         }
 
         # 使用 Qt 安装的 MinGW 工具链
-        $qtToolsRoot = 'C:\Qt\Tools'
+        $qtVersionDir = Split-Path $env:Qt5_Dir -Parent
+        $qtRoot = Split-Path $qtVersionDir -Parent
+
+        $candidateToolsDirs = @(
+          (Join-Path $qtRoot 'Tools'),
+          'C:\Qt\Tools',
+          (Join-Path $qtVersionDir 'Tools')
+        )
+
+        Write-Host "候选 Qt Tools 目录："
+        $candidateToolsDirs | ForEach-Object { if ($_){ Write-Host "  - $_" } }
+
+        $qtToolsRoot = $null
+        foreach ($candidate in $candidateToolsDirs) {
+          if ($candidate -and (Test-Path $candidate)) {
+            $qtToolsRoot = $candidate
+            break
+          }
+        }
+
+        if (-not $qtToolsRoot) {
+          throw "未找到 Qt Tools 目录，候选路径：$($candidateToolsDirs -join ', ')"
+        }
+
+        Write-Host "Qt Tools 根目录: $qtToolsRoot"
+
         $toolchainDir = Join-Path $qtToolsRoot '${{ matrix.mingw_dir }}'
         if (-not (Test-Path $toolchainDir)) {
           throw "未找到 Qt MinGW 工具链目录: $toolchainDir"
