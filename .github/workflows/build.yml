@@ -181,7 +181,7 @@ jobs:
         Copy-Item -Path LICENSE -Destination $packageDir/ -ErrorAction SilentlyContinue
     
     - name: Upload Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: IPtools-Windows-${{ matrix.mingw_arch }}
         path: IPtools-Windows-${{ matrix.mingw_arch }}
@@ -299,7 +299,7 @@ jobs:
     
     - name: Upload Artifact
       if: matrix.arch == 'x86_64'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: IPtools-Linux-${{ matrix.arch }}
         path: |
@@ -309,7 +309,7 @@ jobs:
     
     - name: Upload Placeholder (ARM64)
       if: matrix.arch == 'aarch64'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: IPtools-Linux-${{ matrix.arch }}-BuildInstructions
         path: IPtools-Linux-${{ matrix.arch }}.tar.gz
