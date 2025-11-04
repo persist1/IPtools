@@ -26,7 +26,7 @@ jobs:
   build-windows:
     name: Build Windows (${{ matrix.arch }})
     runs-on: windows-latest
-    # 只在满足以下条件时运行：
+    # 是只在满足以下条件时运行：
     # 1. 自动触发（push/PR）时
     # 2. 手动触发且选择了 all 或对应的平台
     if: |
