@@ -11,13 +11,6 @@ on:
         description: '选择构建平台'
         required: true
         default: 'all'
-        type: choice
-        options:
-          - all
-          - windows-x64
-          - windows-x86
-          - linux-x86_64
-          - linux-arm64
 
 env:
   QT_VERSION: '5.15.2'
